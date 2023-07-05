@@ -298,16 +298,154 @@ def run_game(genomes, config):
         pygame.display.flip()
         clock.tick(60)  # fixed 60 fps
 
+import numpy as np
+class env():
+    def __init__(self):
+        self.info=np.zeros((3, 3))
+        self.steps=0
+    def check_end_game(self):
+        k=np.sum(self.info,axis=1)
+        k1=np.sum(self.info,axis=0)
+        if 3 in k or 3 in k1 or -3 in k or -3 in k1:
+            return True
+        m_d=np.diagonal(self.info)
+        k2=np.sum(m_d)
+        d_d=np.diagonal(np.fliplr(self.info))
+        k3=np.sum(d_d)
+        if 3==k2 or 3==k3 or -3==k2 or -3==k3:
+            return True
+        if not np.isin(0,self.info):
+            return True
+        if self.steps>=15:
+            #print("ovewload")
+            return True
+        return False
+    def step(self,x,y,mark):
+        if self.info[x,y]==0:
+            self.steps += 1
+            self.info[x,y]=mark
+            return 0#в случае корректного хода меняет фитнес на 0
+        else:
+            self.steps += 1
+            return -15#в случае некорректного уменьшает фитнес на 5
+
+    def test(self):
+        self.info[0,0]=-1
+        self.info[1, 1] =-1
+        self.info[2, 2] = -1
+    def get_pole(self):
+        return self.info.reshape(9)
+    def why_end(self):
+        k = np.sum(self.info, axis=1)
+        k1 = np.sum(self.info, axis=0)
+        if 3 in k or 3 in k1:
+            print("крестики вин")
+            return 3
+        if -3 in k or -3 in k1:
+            print("нолики вин")
+            return -3
+        m_d = np.diagonal(self.info)
+        k2 = np.sum(m_d)
+        d_d = np.diagonal(np.fliplr(self.info))
+        k3 = np.sum(d_d)
+        if 3 == k2 or 3 == k3:
+            print("крестики вин")
+            return 3
+        if -3 == k2 or -3 == k3:
+            print("нолики вин")
+            return -3
+        if not np.isin(0, self.info):
+            print("кончились поля, ничья")
+            return 20
+        if self.steps >= 15:
+            #print("нейронка затупила")
+            return -10
+        return False
+
+sucsees_games=0
+all_games=0
+def learn_para(net,gen):
+    sreda = env()
+    nets=[net[0],net[1]]
+    genomes=[gen[0],gen[1]]
+    while not sreda.check_end_game():
+        mark=1
+        #print("inf")
+        for i in range(2):
+            pole=sreda.get_pole()
+            pole=np.append(pole,mark)
+            rew=-1
+            while rew!=0 and not sreda.check_end_game():
+                #print(sreda.steps)
+
+                output = nets[i].activate(pole)
+                x,y=output
+                x= math.floor(x*3)
+                y=math.floor(y*3)
+                if y>=3:
+                    y-=1
+                if x>=3:
+                    x-=1
+                rew=sreda.step(x,y,mark)
+            pole[9]=-1
+            mark=-1
+            genomes[i][1].fitness+=rew
+    k=sreda.why_end()
+    global sucsees_games,all_games
+    if k==3:
+        genomes[0][1].fitness+=15
+        genomes[1][1].fitness+=5
+        all_games += 1
+        sucsees_games+=1
+        #print("s")
+    if k==-3:
+        genomes[1][1].fitness+=15
+        genomes[0][1].fitness+=5
+        sucsees_games += 1
+        all_games+=1
+    if k==20:
+        genomes[0][1].fitness+=k
+        genomes[1][1].fitness += k
+        sucsees_games += 1
+        all_games += 1
+    if k==-10:
+        genomes[0][1].fitness += 2
+        genomes[1][1].fitness += 2
+        all_games += 1
+
+    return genomes,sreda
+
+def learning(genomes, config):
+    nets=[]
+    #sreda=env()
+
+    for i, g in genomes:
+        net = neat.nn.FeedForwardNetwork.create(g, config)
+        nets.append(net)  # заполняет нейросетями которые будут подключены к динозаврам
+        g.fitness = 0
+
+    for i in range(10):
+        gen=[genomes[i*2],genomes[(i*2)+1]]
+        nt=[nets[(i*2)],nets[(i*2)+1]]
+        gen_n,en=learn_para(nt,gen)
+        genomes[i*2]=gen_n[0]
+        genomes[(i*2)+1]=gen_n[1]
+        en.why_end()
+
+
 
 if __name__ == "__main__":
     # setup config
     config_path = "./config.txt"
     config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction, neat.DefaultSpeciesSet,
                                 neat.DefaultStagnation, config_path)
+    config.genome_config.initial_connection = 'full_direct'
 
     # init NEAT
     p = neat.Population(config)
 
     # run NEAT
-    p.run(run_game, 1000)
+    p.run(learning, 1000)
+    print("успешных ",sucsees_games)
+    print("всего",all_games)
     #x=Cactus(5,5)
